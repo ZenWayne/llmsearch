@@ -8,6 +8,10 @@ from haystack.components.writers import DocumentWriter
 from haystack.components.embedders import SentenceTransformersTextEmbedder
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder
 from haystack.utils import ComponentDevice, Device
+from haystack.components.builders import PromptBuilder
+
+
+from custom_haystack.components.fetcher.searxng_fetcher import SearXNGQueryFetcher
 import time
 
 from haystack.components.retrievers import InMemoryEmbeddingRetriever
@@ -22,7 +26,7 @@ def split_by_passage(content: str):
     for i in range(0, len(lines), 10):  # 每10行分割一次
         passage = "\n".join(lines[i:i + 10])  # 组合成一个段落
         passages.append(passage)
-    print("passages: ",passages)
+    #print("passages: ",passages)
     return passages  # 返回分割后的段落列表
 
 # time cost
@@ -34,6 +38,7 @@ doc_embedder = SentenceTransformersDocumentEmbedder(model="BAAI/bge-m3",
 doc_embedder.warm_up()
 
 pipeline = Pipeline()
+pipeline.add_component("fetcher", SearXNGQueryFetcher(searxng_url="http://localhost:8080/", result_per_query=20))
 pipeline.add_component("converter", MarkdownToDocument())
 pipeline.add_component("cleaner", DocumentCleaner())
 pipeline.add_component("splitter", DocumentSplitter(split_by="function", splitting_function=split_by_passage))

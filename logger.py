@@ -43,7 +43,7 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(CustomFormatter())
 logger.addHandler(console_handler)
 
-def log_exception(e: Exception, message: str = None):
+def exception(e: Exception, message: str = None):
     """ 自定义异常记录快捷方式 """
     logger.error(
         f"{message}: {str(e)}" if message else f"Exception: {str(e)}",

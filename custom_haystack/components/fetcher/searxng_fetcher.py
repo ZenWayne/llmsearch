@@ -1,23 +1,26 @@
 # SPDX-FileCopyrightText: 2024-present DeepSeek
 # SPDX-License-Identifier: Apache-2.0
 
-from haystack import Document, component, logging
+from haystack import component, logging
+from haystack.dataclasses import Document
 import aiohttp
 import asyncio
 from typing import List, Dict
 from urllib.parse import urljoin
 import json
+import time
+from .url_to_markdown import URLMarkdownFetcher
 
 logger = logging.getLogger(__name__)
 
 @component
-class SearXNGQueryFetcher:
+class SearXNGQueryFetcher(URLMarkdownFetcher):
     """
     通过SearXNG搜索引擎获取搜索结果的组件
     
     Usage example:
     ```python
-    from custom_haystack.components.queryfetcher.searxng_fetcher import SearXNGQueryFetcher
+    from custom_haystack.components.fetcher.searxng_fetcher import SearXNGQueryFetcher
     
     fetcher = SearXNGQueryFetcher(
         searxng_url="http://localhost:8080",
@@ -32,13 +35,15 @@ class SearXNGQueryFetcher:
     def __init__(
         self,
         searxng_url: str = "http://localhost:8080",
-        max_results: int = 5,
+        result_per_query: int = 5,
         timeout: float = 30.0,
         safe_search: int = 1,
         language: str = "zh-CN"
     ):
+        # 显式调用父类初始化
+        URLMarkdownFetcher.__init__(self)
         self.base_url = searxng_url
-        self.max_results = max_results
+        self.result_per_query = result_per_query
         self.timeout = timeout
         self.safe_search = safe_search
         self.language = language
@@ -75,15 +80,14 @@ class SearXNGQueryFetcher:
                     return []
                     
                 data = await response.json(loads=json.loads)
-                return data.get("results", [])[:self.max_results]
+                return data.get("results", [])[:self.result_per_query]
                 
         except Exception as e:
-            log_exception(e, f"搜索异常: {str(e)} - {query}")
+            logger.exception(f"搜索异常: {str(e)} - {query}")
             return []
 
     def _result_to_document(self, result: Dict) -> Document:
         """将搜索结果转换为Haystack文档格式"""
-        logger.info(f"result: {result}")
         content = f"{result.get('content', '')}"
         metadata = {
             "url": result.get("url", ""),
@@ -104,66 +108,72 @@ class SearXNGQueryFetcher:
         :return: 包含Document对象的字典
         """
         async def _async_run():
+            # 1. 执行搜索获取URL列表
             async with aiohttp.ClientSession(headers=self.headers) as session:
-                tasks = [self._fetch_single_query(session, q) for q in queries]
-                results = await asyncio.gather(*tasks)
-                return results
-                
+                search_tasks = [self._fetch_single_query(session, q) for q in queries]
+                search_results = await asyncio.gather(*search_tasks)
+            
+            # 2. 提取所有结果URL
+            urls = []
+            for sublist in search_results:
+                for result in sublist:
+                    if isinstance(result, dict) and "url" in result:
+                        urls.append(result["url"])
+            
+            # 3. 使用基类爬取能力
+            crawl_tasks = [self._async_crawl(url) for url in urls]
+            return await self._gather_tasks(crawl_tasks)
+            
         # 执行异步任务
+        time_start = time.time()
         all_results = asyncio.run(_async_run())
-        
-        # 转换结果格式
-        documents = []
-        for query_results in all_results:
-            for result in query_results:
-                documents.append(self._result_to_document(result))
-                
-        return {"documents": documents}
+        time_end = time.time()
+        logger.info(f"完成搜索及爬虫，耗时: {time_end - time_start}秒")
+        return {"documents": [doc for doc in all_results if isinstance(doc, Document)]}
 
+# 如果作为主脚本运行
 if __name__ == "__main__":
     # 添加模块搜索路径
     import sys
     import os
-    # custom_haystack/components/fetcher/searxng_fetcher.py
-    sys.path.append(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.dirname(__file__)  # 假设logger.py在项目根目录
-                )
-            )
-        )
-    )
+    # 添加项目根目录到路径中，确保能找到所有模块
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    sys.path.append(project_root)
+    print(f"project_root: {project_root}")
   
     # 初始化日志配置
     import logging
-    from logger import CustomFormatter, ContextFilter
-    
-    # 创建根logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
-    
-    # 添加控制台handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(CustomFormatter())
-    root_logger.addHandler(console_handler)
-    
-    # 添加上下文过滤器
-    context_filter = ContextFilter()
-    root_logger.addFilter(context_filter)
+    try:
+        from logger import CustomFormatter, ContextFilter
+        
+        # 创建根logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        
+        # 添加控制台handler
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(CustomFormatter())
+        root_logger.addHandler(console_handler)
+        
+        # 添加上下文过滤器
+        context_filter = ContextFilter()
+        root_logger.addFilter(context_filter)
+    except ImportError:
+        # 如果找不到自定义logger，使用标准配置
+        logging.basicConfig(level=logging.ERROR)
     
     # 设置haystack组件的日志级别
-    logging.getLogger("haystack").setLevel(logging.INFO)
+    logging.getLogger("haystack").setLevel(logging.ERROR)
     
     # 测试用例
     fetcher = SearXNGQueryFetcher(
         searxng_url="http://localhost:8080/",  # 替换为实际SearXNG实例地址
-        max_results=2
+        result_per_query=20
     )
     
-    results = fetcher.run(queries=["2024年AI发展趋势", "深度学习最新进展"])
+    results = fetcher.run(queries=["深度学习最新进展"])
     for idx, doc in enumerate(results["documents"]):
         print(f"结果 {idx+1}:")
         print(f"标题: {doc.meta.get('title', '')}")
-        print(f"摘要: {doc.content}")
+        print(f"文本: {doc.content[0:100]}")
         print(f"链接: {doc.meta['url']}\n") 
