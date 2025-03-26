@@ -9,7 +9,7 @@ from typing import List, Dict
 from urllib.parse import urljoin
 import json
 import time
-from .url_to_markdown import URLMarkdownFetcher
+from .URLMarkdownFetcher import URLMarkdownFetcher
 
 logger = logging.getLogger(__name__)
 

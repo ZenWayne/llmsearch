@@ -2,8 +2,9 @@ from haystack import Document, component, logging
 from haystack.components.builders import PromptBuilder
 from jinja2 import meta
 from jinja2.sandbox import SandboxedEnvironment
-import asyncio
 from typing import List, Optional, Dict, Any, Union, Literal
+
+logger = logging.getLogger(__name__)
 
 @component
 class DocsPromptBuilder(PromptBuilder):
@@ -106,6 +107,8 @@ class DocsPromptBuilder(PromptBuilder):
 
         template_variables["contents"] = "\n".join([f"Document <{source_ids_map[doc.meta['source_id']]['index']}>:\n{doc.content}" for doc in documents])
         template_variables["references"] = "\n".join([f"Document <{v['index']}>[{v['docs'][0].meta['title']}]({v['docs'][0].meta['url']})" for k, v in source_ids_map.items()])
+
+        logger.info(f"template_variables: {template_variables['contents']}")
         
         self._validate_variables(set(template_variables.keys()))
 
@@ -118,7 +121,6 @@ class DocsPromptBuilder(PromptBuilder):
 
 
 if __name__ == "__main__":
-    from custom_haystack.components.fetcher.url_to_markdown import URLMarkdownFetcher
     datas = [
         {
             "content": "This is a test document.",
