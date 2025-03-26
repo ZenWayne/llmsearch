@@ -13,7 +13,6 @@ class SiliconFlowTextEmbedder:
                  api_key: str,
                  model: str = "BAAI/bge-large-zh-v1.5",
                  ):
-        self.logger = logging.getLogger(__name__)
         self.siliconflow_url = "https://api.siliconflow.cn/v1/embeddings"
         self.api_key = api_key
         self.model = model
@@ -40,6 +39,7 @@ class SiliconFlowTextEmbedder:
                 headers=headers,
                 json=payload
             )
+            logger.info(f"api_key: {self.api_key}")
             response.raise_for_status()
             
             obj = response.json()
@@ -48,10 +48,10 @@ class SiliconFlowTextEmbedder:
             return {"embedding": embedding}
             
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Embedding请求失败: {str(e)}")
+            logger.error(f"Embedding请求失败: {str(e)}")
             raise
         except (KeyError, IndexError) as e:
-            self.logger.error(f"响应格式解析错误: {str(e)}")
+            logger.error(f"响应格式解析错误: {str(e)}")
             raise
 
 if __name__ == "__main__":

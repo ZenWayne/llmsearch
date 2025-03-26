@@ -1,128 +1,186 @@
-from haystack import Pipeline
+from haystack import AsyncPipeline
 from haystack.document_stores.in_memory import InMemoryDocumentStore
 from haystack.components.converters import MarkdownToDocument
 from haystack.components.preprocessors import DocumentCleaner
 from haystack.components.preprocessors import DocumentSplitter
-from haystack.components.embedders import SentenceTransformersDocumentEmbedder
+from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
 from haystack.components.writers import DocumentWriter
-
-
-import os
+from haystack.components.retrievers import InMemoryEmbeddingRetriever
+from haystack.document_stores.types import DuplicatePolicy
+from haystack.utils import Secret
+from haystack.components.generators import OpenAIGenerator
 
 from custom_haystack.components.fetcher.SearxngFetcher import SearXNGQueryFetcher
 from custom_haystack.components.embedders import SiliconFlowTextEmbedder, SiliconFlowDocumentEmberdder
 from custom_haystack.components.builders import DocsPromptBuilder
 
 import time
-
-from haystack.components.retrievers import InMemoryEmbeddingRetriever
+import json
 import logging
+from typing import Callable
 
 
-try:
-    from logger import CustomFormatter, ContextFilter
+logger = logging.getLogger(__name__)
+
+class RAGSystem:
+    def __init__(
+        self,
+        split_lines: int = 10,
+        searxng_url: str = "http://127.0.0.1:8080/",
+        result_per_query: int = 5,
+        use_siliconflow: bool = True,
+        template_path: str = "./template/query_template.md",
+        streaming_callback: Callable = None,
+        model: str = "qwen-qwq-32b"
+    ):
+        self.split_lines = split_lines
+        self.searxng_url = searxng_url
+        self.result_per_query = result_per_query
+        self.use_siliconflow = use_siliconflow
+        self.template_path = template_path
+        self.streaming_callback = streaming_callback
+        
+        # 初始化文档存储
+        self.document_store = InMemoryDocumentStore()
+        self.model = model
+        
+        # 初始化嵌入器
+        if self.use_siliconflow:
+            self.siliconflow_api_key = Secret.from_env_var("SILICONFLOW_API_KEY").resolve_value()
+            self.embedder = SiliconFlowDocumentEmberdder(api_key=self.siliconflow_api_key)
+        else:
+            self.embedder = SentenceTransformersDocumentEmbedder(model="BAAI/bge-m3")
+            self.embedder.warm_up()
+            
+        # 初始化管道
+        self._init_pipeline()
+        self._init_query_pipeline()
+        
+    def split_by_passage(self, content: str):
+        lines = content.splitlines()
+        passages = []
+        for i in range(0, len(lines), self.split_lines):
+            passage = "\n".join(lines[i:i + self.split_lines])
+            passages.append(passage)
+        return passages
     
-    # 创建根logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    def _init_pipeline(self):
+        self.pipeline = AsyncPipeline()
+        self.pipeline.add_component("fetcher", SearXNGQueryFetcher(
+            searxng_url=self.searxng_url,
+            result_per_query=self.result_per_query
+        ))
+        self.pipeline.add_component("cleaner", DocumentCleaner())
+        self.pipeline.add_component("splitter", DocumentSplitter(
+            split_by="function",
+            splitting_function=self.split_by_passage
+        ))
+        self.pipeline.add_component("embedder", self.embedder)
+        self.pipeline.add_component("writer", DocumentWriter(
+            document_store=self.document_store,
+            policy=DuplicatePolicy.OVERWRITE
+        ))
+        
+        # 连接组件
+        self.pipeline.connect("fetcher", "cleaner")
+        self.pipeline.connect("cleaner", "splitter")
+        self.pipeline.connect("splitter", "embedder")
+        self.pipeline.connect("embedder", "writer")
+        
+    def _init_query_pipeline(self):
+        self.retriever = InMemoryEmbeddingRetriever(self.document_store)
+        if self.use_siliconflow:
+            self.query_embedder = SiliconFlowTextEmbedder(api_key=self.siliconflow_api_key)
+        else:
+            self.query_embedder = SentenceTransformersTextEmbedder(model="BAAI/bge-m3")
+        
+        # 读取模板
+        with open(self.template_path, "r", encoding="utf-8") as f:
+            template = f.read()
+            
+        #logger.info(f"template: {template}")
+        self.prompt_builder = DocsPromptBuilder(template=template)
+        
+        self.query_pipeline = AsyncPipeline()
+        self.query_pipeline.add_component("embedder", self.query_embedder)
+        self.query_pipeline.add_component("retriever", self.retriever)
+        self.query_pipeline.add_component("prompt_builder", self.prompt_builder)
+        self.query_pipeline.add_component("llm", 
+            OpenAIGenerator(
+                api_key=Secret.from_env_var("GROQ_API_KEY"),
+                api_base_url="https://api.groq.com/openai/v1",
+                model=self.model
+            ))
+            
+        # 连接组件
+        self.query_pipeline.connect("embedder.embedding", "retriever.query_embedding")
+        self.query_pipeline.connect("retriever.documents", "prompt_builder.documents")
+        self.query_pipeline.connect("prompt_builder", "llm")
+        
+    async def process_query(self, query_str: str, streaming_callback: Callable = None):
+        # 处理查询并获取文档
+        result = await self.pipeline.run_async(
+            {"fetcher": {"queries": [query_str]}},
+            include_outputs_from={"splitter"}
+        )
+        
+        # 保存分割结果
+        with open("./tmp/splite_result.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps(
+                [{"content": doc.content} for doc in result["splitter"]["documents"]],
+                indent=4,
+                ensure_ascii=False
+            ))
+            
+        # 执行查询
+        query_result = await self.query_pipeline.run_async(
+            data={
+                "embedder": {"text": query_str},
+                "prompt_builder": {"question": query_str},
+                "llm": {"streaming_callback": streaming_callback if streaming_callback else self.streaming_callback}
+            }
+        )
+        
+        # 保存查询结果
+        with open("./tmp/query_result.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps(query_result, indent=4, ensure_ascii=False))
+            
+        return query_result['llm']['replies'][0]
+
+# 使用示例
+if __name__ == "__main__":
+    try:
+        from logger import CustomFormatter, ContextFilter
+        
+        # 创建根logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        
+        # 添加控制台handler
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(CustomFormatter())
+        root_logger.addHandler(console_handler)
+        
+        # 添加上下文过滤器
+        context_filter = ContextFilter()
+        root_logger.addFilter(context_filter)
+    except ImportError:
+        # 如果找不到自定义logger，使用标准配置
+        logging.basicConfig(level=logging.ERROR)
+    # 设置haystack组件的日志级别
+    logging.getLogger("haystack").setLevel(logging.ERROR)
+    start_time = time.time()
     
-    # 添加控制台handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(CustomFormatter())
-    root_logger.addHandler(console_handler)
+    # 创建RAG系统实例
+    rag_system = RAGSystem(
+        split_lines=10,
+        searxng_url="http://127.0.0.1:8080/",
+        result_per_query=5
+    )
     
-    # 添加上下文过滤器
-    context_filter = ContextFilter()
-    root_logger.addFilter(context_filter)
-except ImportError:
-    # 如果找不到自定义logger，使用标准配置
-    logging.basicConfig(level=logging.ERROR)
-
-# 设置haystack组件的日志级别
-logging.getLogger("haystack").setLevel(logging.ERROR)
-
-## split by passage every 10 lines "\r\n"
-def split_by_passage(content: str):
-    lines = content.splitlines()  # 按行分割内容
-    passages = []
+    # 执行查询
+    query_str = "今天星期几"
+    result = rag_system.process_query(query_str)
+    print(f"result: {result}")
     
-    #print("lines: ",lines)
-    for i in range(0, len(lines), 10):  # 每10行分割一次
-        passage = "\n".join(lines[i:i + 10])  # 组合成一个段落
-        passages.append(passage)
-    #print("passages: ",passages)
-    return passages  # 返回分割后的段落列表
-
-# time cost
-start_time = time.time()
-
-# read siliconflow api key from .env file
-
-siliconflow_api_key = os.getenv("SILICONFLOW_API_KEY")
-print(f"siliconflow_api_key: {siliconflow_api_key}")
-
-
-query_str = "今天星期几"
-
-document_store = InMemoryDocumentStore()
-
-use_siliconflow = True
-embedder = SiliconFlowDocumentEmberdder(api_key=siliconflow_api_key)
-
-if not use_siliconflow:
-    embedder = SentenceTransformersDocumentEmbedder(model="BAAI/bge-m3")
-    embedder.warm_up()
-
-pipeline = Pipeline()
-pipeline.add_component("fetcher", SearXNGQueryFetcher(searxng_url="http://10.10.44.47:11436/", result_per_query=20))
-pipeline.add_component("cleaner", DocumentCleaner())
-pipeline.add_component("splitter", DocumentSplitter(split_by="function", splitting_function=split_by_passage))
-pipeline.add_component("embedder", embedder)
-pipeline.add_component("writer", DocumentWriter(document_store=document_store))
-pipeline.connect("fetcher", "cleaner")
-pipeline.connect("cleaner", "splitter")
-pipeline.connect("splitter", "embedder")
-pipeline.connect("embedder", "writer")
-
-result=pipeline.run({"fetcher": {"queries": [query_str]}},
-             include_outputs_from={"splitter"})
-
-#print(result)
-#print([ {"content":doc.content} for doc in result["splitter"]["documents"]])
-#write json to file add indent
-# with open("./tmp/splite_result.json", "w", encoding="utf-8") as f:
-#     f.write(json.dumps([ {"content":doc.content} for doc in result["splitter"]["documents"]], indent=4))
-
-retriever = InMemoryEmbeddingRetriever(document_store)
-
-embedder = SiliconFlowTextEmbedder(api_key=siliconflow_api_key)
-
-#query
-query_pipeline = Pipeline()
-
-template = """
-## Input Data
-
-### 【Web Page】
-{{contents}}
-
-### 【References】
-{{references}}
-
-### 【Question】
-{{question}}
-"""
-
-prompt_builder = DocsPromptBuilder(template=template)
-
-query_pipeline.add_component("prompt_builder",prompt_builder)
-query_pipeline.add_component("embedder",embedder)
-query_pipeline.add_component("retriever", retriever)
-
-query_pipeline.connect("embedder.embedding", "retriever.query_embedding")
-query_pipeline.connect("retriever.documents", "prompt_builder.documents")
-
-result = query_pipeline.run(data={"prompt_builder": {"question": query_str}})
-
-print(f"query result: {result}")
-print(f"time cost: {time.time() - start_time}")
+    print(f"time cost: {time.time() - start_time}")

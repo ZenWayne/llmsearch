@@ -82,6 +82,10 @@ class SiliconFlowDocumentEmberdder:
 
     @component.output_types(documents=List[Document])
     def run(self, documents: List[Document]):
+        pass
+
+    @component.output_types(documents=List[Document])
+    async def run_async(self, documents: List[Document]):
         """
         Embed a list of documents.
 
@@ -105,7 +109,7 @@ class SiliconFlowDocumentEmberdder:
 
         embeddings = []
             
-        embeddings = asyncio.run(self._gather_tasks(texts_to_embed))
+        embeddings = await self._gather_tasks(texts_to_embed)
         
         for doc, embedding in zip(documents, embeddings):
             doc.embedding = embedding

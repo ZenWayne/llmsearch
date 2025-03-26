@@ -2,12 +2,13 @@ from haystack import Document, component, logging
 from haystack.components.builders import PromptBuilder
 from jinja2 import meta
 from jinja2.sandbox import SandboxedEnvironment
-from typing import List, Optional, Dict, Any, Union, Literal
+from typing import List, Optional, Dict, Any, Union, Literal, Set
+from haystack import default_to_dict
 
 logger = logging.getLogger(__name__)
 
 @component
-class DocsPromptBuilder(PromptBuilder):
+class DocsPromptBuilder:
     """
     搭配DocumentSplitter输出Document中的doc.meta['source_id']
     将切分的文档去重并输出索引列表
@@ -41,7 +42,9 @@ class DocsPromptBuilder(PromptBuilder):
     ```
     """
     def __init__(self,
-        template: str
+        template: str,
+        required_variables: Optional[Union[List[str], Literal["*"]]] = None,
+        variables: Optional[List[str]] = None,
     ):
         """
         Constructs a PromptBuilder component.
@@ -55,8 +58,6 @@ class DocsPromptBuilder(PromptBuilder):
             If an optional variable is not provided, it's replaced with an empty string in the rendered prompt.
 
         """
-        required_variables = ["contents", "references"]
-        variables = ["contents", "references"]
         self._template_string = template
         self._variables = variables
         self._required_variables = required_variables
@@ -79,7 +80,39 @@ class DocsPromptBuilder(PromptBuilder):
                 component.set_input_type(self, var, Any)
             else:
                 component.set_input_type(self, var, Any, "")
-    
+
+    def _validate_variables(self, provided_variables: Set[str]):
+        """
+        Checks if all the required template variables are provided.
+
+        :param provided_variables:
+            A set of provided template variables.
+        :raises ValueError:
+            If any of the required template variables is not provided.
+        """
+        if self.required_variables == "*":
+            required_variables = sorted(self.variables)
+        else:
+            required_variables = self.required_variables
+        missing_variables = [var for var in required_variables if var not in provided_variables]
+        if missing_variables:
+            missing_vars_str = ", ".join(missing_variables)
+            raise ValueError(
+                f"Missing required input variables in PromptBuilder: {missing_vars_str}. "
+                f"Required variables: {required_variables}. Provided variables: {provided_variables}."
+            )
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary representation of the component.
+
+        :returns:
+            Serialized dictionary representation of the component.
+        """
+        return default_to_dict(
+            self, template=self._template_string, variables=self._variables, required_variables=self._required_variables
+        )
+
     @component.output_types(prompt=str)
     def run(self, template: Optional[str] = None, documents: List[Document] = None, **kwargs):
         """
@@ -105,6 +138,8 @@ class DocsPromptBuilder(PromptBuilder):
             else:
                 source_ids_map[source_id]["docs"].append(doc)
 
+        template_variables = {**kwargs, **template_variables}
+
         template_variables["contents"] = "\n".join([f"Document <{source_ids_map[doc.meta['source_id']]['index']}>:\n{doc.content}" for doc in documents])
         template_variables["references"] = "\n".join([f"Document <{v['index']}>[{v['docs'][0].meta['title']}]({v['docs'][0].meta['url']})" for k, v in source_ids_map.items()])
 
@@ -117,7 +152,7 @@ class DocsPromptBuilder(PromptBuilder):
             compiled_template = self._env.from_string(template)
 
         result = compiled_template.render(template_variables)
-        return result
+        return {"prompt": result}
 
 
 if __name__ == "__main__":
@@ -156,8 +191,11 @@ if __name__ == "__main__":
 
 ### 【References】
 {{references}}
+
+### 【Question】
+{{question}}
 """
     DocList= [Document(content=data["content"], meta=data["meta"]) for data in datas]
     prompt_builder = DocsPromptBuilder(template=template)
-    results = prompt_builder.run(documents=DocList)
+    results = prompt_builder.run(documents=DocList, question="What is the title of the document?")
     print(results)

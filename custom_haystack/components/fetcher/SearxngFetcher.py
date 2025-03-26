@@ -3,13 +3,14 @@
 
 from haystack import component, logging
 from haystack.dataclasses import Document
-import aiohttp
-import asyncio
+import requests
+import concurrent.futures
 from typing import List, Dict
 from urllib.parse import urljoin
 import json
 import time
 from .URLMarkdownFetcher import URLMarkdownFetcher
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class SearXNGQueryFetcher(URLMarkdownFetcher):
         }
         logger.info(f"searxng_url: {self.base_url}")
 
-    async def _fetch_single_query(self, session: aiohttp.ClientSession, query: str) -> List[Dict]:
-        """异步获取单个查询的结果"""
+    def _fetch_single_query(self, query: str) -> List[Dict]:
+        """同步获取单个查询的结果"""
         params = {
             "q": query,
             "format": "json",
@@ -69,18 +70,19 @@ class SearXNGQueryFetcher(URLMarkdownFetcher):
         params = {k: v for k, v in params.items() if v is not None}
         
         try:
-            async with session.get(
+            response = requests.get(
                 url=urljoin(self.base_url, "/search"),
-                params=params,  # 将参数放在请求体中
+                params=params,
+                headers=self.headers,
                 timeout=self.timeout
-            ) as response:
+            )
                 
-                if response.status != 200:
-                    logger.warning(f"搜索失败: HTTP {response.status} - {query} - {await response.text()}")
-                    return []
+            if response.status_code != 200:
+                logger.warning(f"搜索失败: HTTP {response.status_code} - {query} - {response.text}")
+                return []
                     
-                data = await response.json(loads=json.loads)
-                return data.get("results", [])[:self.result_per_query]
+            data = response.json()
+            return data.get("results", [])[:self.result_per_query]
                 
         except Exception as e:
             logger.exception(f"搜索异常: {str(e)} - {query}")
@@ -101,32 +103,33 @@ class SearXNGQueryFetcher(URLMarkdownFetcher):
 
     @component.output_types(documents=List[Document])
     def run(self, queries: List[str]):
+        pass
+
+    @component.output_types(documents=List[Document])
+    async def run_async(self, queries: List[str]):
         """
         执行批量搜索查询
         
         :param queries: 搜索关键词列表
         :return: 包含Document对象的字典
         """
-        async def _async_run():
-            # 1. 执行搜索获取URL列表
-            async with aiohttp.ClientSession(headers=self.headers) as session:
-                search_tasks = [self._fetch_single_query(session, q) for q in queries]
-                search_results = await asyncio.gather(*search_tasks)
-            
-            # 2. 提取所有结果URL
-            urls = []
-            for sublist in search_results:
-                for result in sublist:
-                    if isinstance(result, dict) and "url" in result:
-                        urls.append(result["url"])
-            
-            # 3. 使用基类爬取能力
-            crawl_tasks = [self._async_crawl(url) for url in urls]
-            return await self._gather_tasks(crawl_tasks)
-            
-        # 执行异步任务
+        # 执行任务
         time_start = time.time()
-        all_results = asyncio.run(_async_run())
+        
+        search_results = []
+        for query in queries:
+            search_results.append(self._fetch_single_query(query))
+
+        # 2. 提取所有结果URL
+        urls = []
+        for sublist in search_results:
+            for result in sublist:
+                if isinstance(result, dict) and "url" in result:
+                    urls.append(result["url"])
+        
+        # 3. 使用基类爬取能力
+        all_results = await self._gather_tasks(urls)
+        
         time_end = time.time()
         logger.info(f"完成搜索及爬虫，耗时: {time_end - time_start}秒")
         return {"documents": [doc for doc in all_results if isinstance(doc, Document)]}
