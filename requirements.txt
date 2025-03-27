@@ -1,3 +1,4 @@
 nest-asyncio
 haystack-ai
 fastapi
+uvicorn

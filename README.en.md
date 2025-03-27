@@ -1,7 +1,7 @@
 # LLMSearch - LLM Intelligent Search Enhancement
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![中文文档](https://img.shields.io/badge/文档-简体中文-ff69b4.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBmaWxsPSIjZmZmIiBkPSJNNDQ4IDI1NkM0NDggMTQxLjEgMzQ2LjkgNDAgMjMyIDQwUzE2IDE0MS4xIDE2IDI1NnMxMDEuMSAyMTYgMjE2IDIxNiAyMTYtMTAxLjEgMjE2LTIxNnptLTM4NCAwYzAtODguMiA3MS44LTE2MCAxNjAtMTYwczE2MCA3MS44IDE2MCAxNjAtNzEuOCAxNjAtMTYwIDE2MC0xNjAtNzEuOC0xNjAtMTYweiIvPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0yNzIgMjQwaC00OGwtMjAtNjRIMjA4bC0yMCA2NGgtNDhsMzIgOTZoNDh6bTQ4LTk2aC0zMmwtMTYgNDhoNjR6Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTM1MiAyNDBoLTQ4bDMyLTk2aDQ4bC0zMiA5NnptLTMyLTk2aDMybC0xNiA0OGgtMzJ6Ii8+PC9zdmc+)](README.zh_CN.md)
 
 A Haystack-based intelligent search enhanced language model system with real-time web search capabilities.
@@ -22,6 +22,37 @@ A Haystack-based intelligent search enhanced language model system with real-tim
 ## Quick Start
 
 ### Installation
+1. install SearxNG, for getting web search results
+SearxNG is required to be installed and running on your machine, or you can use the default searxng.io service.
+```bash
+mkdir my-instance
+cd my-instance
+export PORT=8080
+docker pull searxng/searxng
+docker run --rm \
+             -d -p ${PORT}:8080 \
+             -v "${PWD}/searxng:/etc/searxng" \
+             -e "BASE_URL=http://localhost:$PORT/" \
+             -e "INSTANCE_NAME=my-instance" \
+             searxng/searxng
+```
+
+2. install crawl4ai, for crawling and parsing web pages
+```bash
+# Install the package
+pip install -U crawl4ai
+
+# For pre release versions
+pip install crawl4ai --pre
+
+# Run post-installation setup
+crawl4ai-setup
+
+# Verify your installation
+crawl4ai-doctor
+```
+
+2. Install project dependencies
 ```bash
 git clone https://github.com/yourusername/llmsearch.git
 cd llmsearch

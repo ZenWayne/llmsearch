@@ -1,7 +1,7 @@
 # LLMSearch - LLM智能搜索增强
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![English](https://img.shields.io/badge/Docs-English-0078d7.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2MCA2MCI+PHBhdGggZmlsbD0iIzAwMjQ3ZCIgZD0iTTAgMGg2MHY2MEgweiIvPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0wIDBoNjB2MTBIMHptMCAyMGg2MHYxMEgwek0wIDQwaDYwdjEwSDB6bTAgMjBoNjB2MTBIMHoiLz48cGF0aCBmaWxsPSIjY2M5YjM2IiBkPSJNMCAxMGg2MHYxMEgwek0wIDMwaDYwdjEwSDB6Ii8+PHBhdGggZmlsbD0iI2RlMjkxMCIgZD0iTTAgMjBoNjB2MTBIMHpNMCA1MGg2MHYxMEgweiIvPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0yNSAwaDEwdjYwSDI1eiIvPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0wIDI1aDYwdjEwSDB6Ii8+PC9zdmc+)](README.en.md)
 
 基于Haystack框架构建的智能搜索增强语言模型系统，结合最新大语言模型与实时网络搜索能力。
@@ -23,6 +23,37 @@
 ## 快速开始
 
 ### 安装依赖
+1. 安装SearxNG，用于获取网络搜索结果
+SearxNG 需要安装并运行在您的机器上，或者您可以使用默认的 searxng.io 服务。
+```bash
+mkdir my-instance
+cd my-instance
+export PORT=8080
+docker pull searxng/searxng
+docker run --rm \
+             -d -p ${PORT}:8080 \
+             -v "${PWD}/searxng:/etc/searxng" \
+             -e "BASE_URL=http://localhost:$PORT/" \
+             -e "INSTANCE_NAME=my-instance" \
+             searxng/searxng
+```
+
+2. 安装python库crawl4ai，用于爬虫和解析网页
+```bash
+# Install the package
+pip install -U crawl4ai
+
+# For pre release versions
+pip install crawl4ai --pre
+
+# Run post-installation setup
+crawl4ai-setup
+
+# Verify your installation
+crawl4ai-doctor
+```
+
+2. 安装项目依赖
 ```bash
 git clone https://github.com/yourusername/llmsearch.git
 cd llmsearch

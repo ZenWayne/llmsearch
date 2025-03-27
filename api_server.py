@@ -15,7 +15,7 @@ import json
 from dotenv import load_dotenv
 
 try:
-    from logger import CustomFormatter, ContextFilter
+    from utils.logger import CustomFormatter, ContextFilter
     
     # 创建根logger
     root_logger = logging.getLogger()
@@ -83,6 +83,7 @@ async def chat_completions(request: ChatRequest):
         
         # 启动后台任务处理查询
         async def process_query():
+
             try:
                 await request_rag.process_query(query, streaming_callback=lambda x: request_queue.put_nowait(x))
                 await request_queue.put(None)  # 结束信号
@@ -92,8 +93,19 @@ async def chat_completions(request: ChatRequest):
         
         # 启动后台任务
         loop = asyncio.get_event_loop()
-        loop.create_task(process_query())
-        
+        task = loop.create_task(process_query())
+        try:
+            await task  # Wait for the task to complete
+        except Exception as e:
+            print(f"Caught exception: {e}")
+            exception(e, f"Error processing query: {e}")
+        else:
+            print("Task succeeded")
+        finally:
+            if not task.cancelled():
+                # Check for unhandled exceptions
+                if task.exception() is not None:
+                    print(f"Unhandled exception: {task.exception()}")
         # 返回流式响应
         return StreamingResponse(
             stream_response(request_queue),
@@ -142,5 +154,5 @@ if __name__ == "__main__":
     )
 
     host = os.getenv("HOST", "127.0.0.1")
-    port = int(os.getenv("PORT", 8001))
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host=host, port=port) 

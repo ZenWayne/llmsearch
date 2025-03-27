@@ -7,8 +7,7 @@ import asyncio
 from typing import List, Optional
 import concurrent.futures
 import traceback
-import time
-import nest_asyncio
+
 
 logger = logging.getLogger(__name__)
 @component

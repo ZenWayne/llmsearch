@@ -116,7 +116,6 @@ class RAGSystem:
             
         #logger.info(f"template: {template}")
         self.prompt_builder = DocsPromptBuilder(template=template)
-        
 
 
         self.query_pipeline = AsyncPipeline()
@@ -137,7 +136,7 @@ class RAGSystem:
         
     async def process_query(self, query_str: str, streaming_callback: Callable = None):
         # 处理查询并获取文档
-        result = await self.pipeline.run_async(
+        await self.pipeline.run_async(
             {"fetcher": {"queries": [query_str]}},
             include_outputs_from={"splitter"}
         )

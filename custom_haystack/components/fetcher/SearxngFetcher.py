@@ -4,13 +4,11 @@
 from haystack import component, logging
 from haystack.dataclasses import Document
 import requests
-import concurrent.futures
 from typing import List, Dict
 from urllib.parse import urljoin
-import json
 import time
 from .URLMarkdownFetcher import URLMarkdownFetcher
-import asyncio
+
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +145,7 @@ if __name__ == "__main__":
     # 初始化日志配置
     import logging
     try:
-        from logger import CustomFormatter, ContextFilter
+        from utils.logger import CustomFormatter, ContextFilter
         
         # 创建根logger
         root_logger = logging.getLogger()
