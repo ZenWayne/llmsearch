@@ -25,13 +25,13 @@ class URLMarkdownFetcher:
     ```
     """
     def __init__(self,
-                 timeout: int = 60000,
+                 timeout: int = 5000,
                  ):
         browser_cfg = BrowserConfig(
             light_mode=True,
             text_mode=True
         )
-        self.crawler = AsyncWebCrawler(browser_config=browser_cfg)
+        self.crawler = AsyncWebCrawler(config=browser_cfg)
         self.crawler_config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout 

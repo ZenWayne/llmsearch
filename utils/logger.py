@@ -55,6 +55,33 @@ class CustomFormatter(logging.Formatter):
             stack_trace = stack_trace[:-1]
         return stack_trace
 
+def exception(e: Exception, message: str = None):
+    """ 自定义异常记录快捷方式 """
+    logger = logging.getLogger()
+    # 获取调用者的框架信息
+    caller_frame = inspect.currentframe().f_back
+    filename = os.path.basename(caller_frame.f_code.co_filename)
+    line_no = caller_frame.f_lineno
+    
+    # 获取当前时间
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    
+    # 获取完整的异常堆栈
+    sio = StringIO()
+    traceback.print_exception(type(e), e, e.__traceback__, None, sio)
+    stack_trace = sio.getvalue()
+    sio.close()
+    if stack_trace[-1:] == "\n":
+        stack_trace = stack_trace[:-1]
+    
+    # 构建日志消息
+    log_message = f"[{current_time}] {filename}:{line_no} - "
+    if message:
+        log_message += f"{message}: "
+    log_message += f"\nException: {type(e).__name__}: {str(e)}\nStack trace:\n{stack_trace}"
+    
+    logger.error(log_message, exc_info=True)
+
 if __name__ == "__main__":
     # 配置全局logging
     logger = logging.getLogger()
@@ -69,28 +96,3 @@ if __name__ == "__main__":
     console_handler.setFormatter(CustomFormatter())
     logger.addHandler(console_handler)
 
-    def exception(e: Exception, message: str = None):
-        """ 自定义异常记录快捷方式 """
-        # 获取调用者的框架信息
-        caller_frame = inspect.currentframe().f_back
-        filename = os.path.basename(caller_frame.f_code.co_filename)
-        line_no = caller_frame.f_lineno
-        
-        # 获取当前时间
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        
-        # 获取完整的异常堆栈
-        sio = StringIO()
-        traceback.print_exception(type(e), e, e.__traceback__, None, sio)
-        stack_trace = sio.getvalue()
-        sio.close()
-        if stack_trace[-1:] == "\n":
-            stack_trace = stack_trace[:-1]
-        
-        # 构建日志消息
-        log_message = f"[{current_time}] {filename}:{line_no} - "
-        if message:
-            log_message += f"{message}: "
-        log_message += f"\nException: {type(e).__name__}: {str(e)}\nStack trace:\n{stack_trace}"
-        
-        logger.error(log_message, exc_info=True)

@@ -8,6 +8,7 @@
 3. Output must include:
    - Answer in paragraphs
    - References ordered by citation sequence
+   - Do not include any other content
 
 ## Question
 {{question}}

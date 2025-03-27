@@ -15,8 +15,7 @@ import json
 from dotenv import load_dotenv
 
 try:
-    from utils.logger import CustomFormatter, ContextFilter
-    
+    from utils.logger import CustomFormatter, ContextFilter, exception
     # 创建根logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
