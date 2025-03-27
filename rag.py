@@ -8,17 +8,16 @@ from haystack.components.writers import DocumentWriter
 from haystack.components.retrievers import InMemoryEmbeddingRetriever
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils import Secret
-from haystack.components.generators import OpenAIGenerator
 
 from custom_haystack.components.fetcher.SearxngFetcher import SearXNGQueryFetcher
 from custom_haystack.components.embedders import SiliconFlowTextEmbedder, SiliconFlowDocumentEmberdder
 from custom_haystack.components.builders import DocsPromptBuilder
+from custom_haystack.components.generators import CustomOpenAIGenerator
 
 import time
 import json
 import logging
 from typing import Callable
-
 
 logger = logging.getLogger(__name__)
 
@@ -28,30 +27,46 @@ class RAGSystem:
         split_lines: int = 10,
         searxng_url: str = "http://127.0.0.1:8080/",
         result_per_query: int = 5,
-        use_siliconflow: bool = True,
-        template_path: str = "./template/query_template.md",
+        use_siliconflow_embedder: bool = True,
         streaming_callback: Callable = None,
-        model: str = "qwen-qwq-32b"
+        model: str = "qwen-qwq-32b",
+        language: str = "zh-CN"
     ):
         self.split_lines = split_lines
         self.searxng_url = searxng_url
         self.result_per_query = result_per_query
-        self.use_siliconflow = use_siliconflow
-        self.template_path = template_path
+        self.use_siliconflow_embedder = use_siliconflow_embedder
         self.streaming_callback = streaming_callback
-        
+        self.language = language
+        if self.language == "en":
+            self.template_path = "./template/query_template.en.md"
+        else:
+            self.template_path = "./template/query_template.md"
         # 初始化文档存储
         self.document_store = InMemoryDocumentStore()
         self.model = model
         
         # 初始化嵌入器
-        if self.use_siliconflow:
+        if self.use_siliconflow_embedder:
             self.siliconflow_api_key = Secret.from_env_var("SILICONFLOW_API_KEY").resolve_value()
             self.embedder = SiliconFlowDocumentEmberdder(api_key=self.siliconflow_api_key)
         else:
             self.embedder = SentenceTransformersDocumentEmbedder(model="BAAI/bge-m3")
             self.embedder.warm_up()
-            
+        
+        self.api_key = ""
+        self.api_base_url = ""
+        if Secret.from_env_var("GROQ_API_KEY"):
+            self.api_key = Secret.from_env_var("GROQ_API_KEY")
+            self.api_base_url = Secret.from_env_var("OPENAI_API_BASE_URL").resolve_value() or "https://api.groq.com/openai/v1"
+        elif Secret.from_env_var("SILICONFLOW_API_KEY"):
+            self.api_key = Secret.from_env_var("SILICONFLOW_API_KEY")
+            self.api_base_url = Secret.from_env_var("OPENAI_API_BASE_URL").resolve_value() or "https://api.siliconflow.com/v1"
+        elif Secret.from_env_var("OPENAI_API_KEY"):
+            self.api_key = Secret.from_env_var("OPENAI_API_KEY")
+            self.api_base_url = Secret.from_env_var("OPENAI_API_BASE_URL").resolve_value() or "https://api.openai.com/v1"
+        else:
+            raise ValueError("No API key found")
         # 初始化管道
         self._init_pipeline()
         self._init_query_pipeline()
@@ -68,7 +83,8 @@ class RAGSystem:
         self.pipeline = AsyncPipeline()
         self.pipeline.add_component("fetcher", SearXNGQueryFetcher(
             searxng_url=self.searxng_url,
-            result_per_query=self.result_per_query
+            result_per_query=self.result_per_query,
+            language=self.language
         ))
         self.pipeline.add_component("cleaner", DocumentCleaner())
         self.pipeline.add_component("splitter", DocumentSplitter(
@@ -89,7 +105,7 @@ class RAGSystem:
         
     def _init_query_pipeline(self):
         self.retriever = InMemoryEmbeddingRetriever(self.document_store)
-        if self.use_siliconflow:
+        if self.use_siliconflow_embedder:
             self.query_embedder = SiliconFlowTextEmbedder(api_key=self.siliconflow_api_key)
         else:
             self.query_embedder = SentenceTransformersTextEmbedder(model="BAAI/bge-m3")
@@ -101,14 +117,16 @@ class RAGSystem:
         #logger.info(f"template: {template}")
         self.prompt_builder = DocsPromptBuilder(template=template)
         
+
+
         self.query_pipeline = AsyncPipeline()
         self.query_pipeline.add_component("embedder", self.query_embedder)
         self.query_pipeline.add_component("retriever", self.retriever)
         self.query_pipeline.add_component("prompt_builder", self.prompt_builder)
         self.query_pipeline.add_component("llm", 
-            OpenAIGenerator(
-                api_key=Secret.from_env_var("GROQ_API_KEY"),
-                api_base_url="https://api.groq.com/openai/v1",
+            CustomOpenAIGenerator(
+                api_key=self.api_key,
+                api_base_url=self.api_base_url,
                 model=self.model
             ))
             
@@ -125,12 +143,12 @@ class RAGSystem:
         )
         
         # 保存分割结果
-        with open("./tmp/splite_result.json", "w", encoding="utf-8") as f:
-            f.write(json.dumps(
-                [{"content": doc.content} for doc in result["splitter"]["documents"]],
-                indent=4,
-                ensure_ascii=False
-            ))
+        # with open("./tmp/splite_result.json", "w", encoding="utf-8") as f:
+        #     f.write(json.dumps(
+        #         [{"content": doc.content} for doc in result["splitter"]["documents"]],
+        #         indent=4,
+        #         ensure_ascii=False
+        #     ))
             
         # 执行查询
         query_result = await self.query_pipeline.run_async(

@@ -52,7 +52,7 @@ class SearXNGQueryFetcher(URLMarkdownFetcher):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
             "Accept": "*/*;"
         }
-        logger.info(f"searxng_url: {self.base_url}")
+        logger.info(f"searxng_url: {self.base_url} language: {self.language}")
 
     def _fetch_single_query(self, query: str) -> List[Dict]:
         """同步获取单个查询的结果"""

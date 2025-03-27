@@ -6,15 +6,16 @@ from haystack.dataclasses.chat_message import ChatMessage
 from haystack.components.generators.openai import OpenAIGenerator
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import json
+import os
 import asyncio
 from rag import RAGSystem
 import logging
 import nest_asyncio
-nest_asyncio.apply()
+import json
+from dotenv import load_dotenv
 
 try:
-    from logger import CustomFormatter, ContextFilter, exception
+    from logger import CustomFormatter, ContextFilter
     
     # 创建根logger
     root_logger = logging.getLogger()
@@ -31,12 +32,13 @@ try:
 except ImportError:
     # 如果找不到自定义logger，使用标准配置
     logging.basicConfig(level=logging.ERROR)
-
-logger = logging.getLogger(__name__)
+    # 设置haystack组件的日志级别
+logging.getLogger("haystack").setLevel(logging.ERROR)
+logger = logging.getLogger("haystack")
 
 app = FastAPI()
 
-model = "qwen-qwq-32b"
+model : Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: str
@@ -49,28 +51,20 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
 
-async def stream_response(response_queue: asyncio.Queue):
+async def stream_response(response_queue: asyncio.Queue[ChatCompletionChunk]):
     while True:
         try:
-            streaming_chunk : StreamingChunk = await response_queue.get()
-            completion_chunk : ChatCompletionChunk = ChatCompletionChunk()
-            completion_chunk.model = model
-            completion_chunk.usage = {}
-            chat_message: ChatMessage=OpenAIGenerator._create_message_from_chunks(completion_chunk, [streaming_chunk])
+            streaming_chunk : ChatCompletionChunk = await response_queue.get()
             if streaming_chunk is None:  # 结束信号
                 break
-            logger.info(f"data: {chat_message.meta}")
-            yield f"data: {chat_message.meta}\n\n"
+            json_data = streaming_chunk.model_dump(mode="json")
+            logger.info(f"data: {json_data}")
+            yield f"data: {json.dumps(json_data, ensure_ascii=False)}\n\n".encode('utf-8')
         except asyncio.CancelledError:
             break
 
 # 创建该请求专用的RAG系统实例
-request_rag = RAGSystem(
-    split_lines=10,
-    searxng_url="http://127.0.0.1:8080/",
-    result_per_query=5,
-    model=model
-)
+request_rag : Optional[RAGSystem] = None
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatRequest):
@@ -103,7 +97,8 @@ async def chat_completions(request: ChatRequest):
         # 返回流式响应
         return StreamingResponse(
             stream_response(request_queue),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers={"Transfer-Encoding":"chunked"}
         )
     
     # 非流式请求
@@ -129,6 +124,23 @@ async def chat_completions(request: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
+    nest_asyncio.apply()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    uvicorn.run(app, host="0.0.0.0", port=8001) 
+
+    load_dotenv(".env")
+    model = os.getenv("MODEL")
+    language = os.getenv("LANGUAGE")
+    logger.info(f"language: {language}")
+    request_rag = RAGSystem(
+        split_lines=10,
+        searxng_url=os.getenv("SEARXNG_URL", "http://127.0.0.1:8080/"),
+        result_per_query=5,
+        model=model,
+        use_siliconflow_embedder=os.getenv("USE_SILICONFLOW_EMBEDDER", "true") == "true",
+        language=language
+    )
+
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", 8001))
+    uvicorn.run(app, host=host, port=port) 
