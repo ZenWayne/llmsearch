@@ -167,7 +167,7 @@ class RAGSystem:
 # 使用示例
 if __name__ == "__main__":
     try:
-        from logger import CustomFormatter, ContextFilter
+        from utils.logger import CustomFormatter, ContextFilter
         
         # 创建根logger
         root_logger = logging.getLogger()

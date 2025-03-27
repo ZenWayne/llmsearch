@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from haystack import Document, component, logging
-from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, BrowserConfig
 import asyncio
 from typing import List, Optional
 import concurrent.futures
@@ -27,7 +27,11 @@ class URLMarkdownFetcher:
     def __init__(self,
                  timeout: int = 60000,
                  ):
-        self.crawler = AsyncWebCrawler()
+        browser_cfg = BrowserConfig(
+            light_mode=True,
+            text_mode=True
+        )
+        self.crawler = AsyncWebCrawler(browser_config=browser_cfg)
         self.crawler_config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             page_timeout=timeout 
